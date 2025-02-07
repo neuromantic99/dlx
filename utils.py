@@ -23,10 +23,13 @@ def load_image(image_directory_path: str) -> aicsimageio.aics_image.AICSImage | 
 
 def select_elipse_from_stack(shape_data: np.ndarray, stack: np.ndarray) -> np.ndarray:
 
-    assert shape_data.shape == (4, 3)
-    assert stack.ndim == 3
-
-    coords = shape_data[:, 1:3]
+    if shape_data.shape == (4, 3):
+        coords = shape_data[:, 1:3]
+        assert stack.ndim == 3
+    elif shape_data.shape == (4, 2):
+        coords = shape_data
+    else:
+        raise ValueError("shape_data must have shape (4, 3) or (4, 2)")
 
     center = np.mean(coords, axis=0)
     y_center, x_center = center
@@ -51,3 +54,9 @@ def select_elipse_from_stack(shape_data: np.ndarray, stack: np.ndarray) -> np.nd
     masked_matrix = np.where(mask[None, :, :], stack, np.nan)
 
     return masked_matrix
+
+
+def compute_dff_single_cell(f: np.ndarray) -> np.ndarray:
+
+    flu_mean = np.mean(f)
+    return (f - flu_mean) / flu_mean
