@@ -57,6 +57,22 @@ def select_elipse_from_stack(shape_data: np.ndarray, stack: np.ndarray) -> np.nd
 
 
 def compute_dff_single_cell(f: np.ndarray) -> np.ndarray:
+    f0 = np.percentile(f, 10)
+    return (f - f0) / f0
 
-    flu_mean = np.mean(f)
-    return (f - flu_mean) / flu_mean
+
+def threshold_detect(signal: np.ndarray, threshold: float) -> np.ndarray:
+    """Returns the indices where signal crosses the threshold"""
+    thresh_signal = signal > threshold
+    thresh_signal[1:][thresh_signal[:-1] & thresh_signal[1:]] = False
+    times = np.where(thresh_signal)
+    return times[0]
+
+
+def threshold_detect_falling_edge(signal: np.ndarray, threshold: float) -> np.ndarray:
+    """Returns the indices where signal falls below the threshold"""
+    thresh_signal = signal > threshold  # Boolean array: True if above threshold
+    falling_edges = (
+        np.where(thresh_signal[:-1] & ~thresh_signal[1:])[0] + 1
+    )  # Detect falling transitions
+    return falling_edges

@@ -2,3 +2,4 @@ aicsimageio
 xmltodict
 napari[all]
 matplotlib
+pytest
