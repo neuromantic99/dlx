@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
+import seaborn as sns
 
 from utils import (
     load_image,
@@ -16,15 +17,21 @@ from utils import (
 from consts import UMBRELLA, coord_path
 
 
+HERE = Path(__file__).parent
+
+
 def load_recording(
     rna: str, well: str | int, experiment: Path
 ) -> Tuple[np.ndarray, np.ndarray]:
     file_name = f"{rna}_{well}_{experiment.name.strip('.czi')}.npy"
+    print(file_name)
     image = load_image(str(experiment))
     assert image is not None
     stack = image.get_image_data().squeeze()
-    file_name = f"{rna}_{well}_{experiment.name.strip('.czi')}.npy"
-    cell_coords = np.load(coord_path / file_name)
+    recording_coord_path = coord_path / file_name
+    print(recording_coord_path)
+    print("\n")
+    cell_coords = np.load(recording_coord_path)
     return stack, cell_coords
 
 
@@ -112,13 +119,11 @@ def plot_dff(dff: np.ndarray, threshold: float) -> None:
     plt.show()
 
 
-if __name__ == "__main__":
+def test_analysis() -> None:
 
-    # experiment = Path("/Users/jamesrowland/Code/dlx/Experiment-1401.czi")
-    HERE = Path(__file__).parent
-    test_data = True
+    redo = True
 
-    if not test_data:
+    if redo:
         rna = "91"
         assert rna in {"90", "91", "scrambled"}
         well = 5
@@ -134,4 +139,73 @@ if __name__ == "__main__":
 
     threshold = 0.3
     plot_dff(dff, threshold=threshold)
-    # count_spikes(dff, threshold=threshold)
+    count_spikes(dff, threshold=threshold)
+
+
+def process_all_recordings() -> None:
+
+    for rna in ["90", "91", "scrambled"]:
+        wells = [
+            folder.name
+            for folder in list((UMBRELLA / rna).glob("*"))
+            if folder.name in {"1", "2", "3", "4", "5"}
+        ]
+        for well in wells:
+            recordings = list((UMBRELLA / rna / well).glob("*.czi"))
+            for recording in recordings:
+
+                save_path = HERE / "results" / f"{rna}_{well}_{recording.name}.npy"
+                if save_path.exists():
+                    print(f"Already done {rna} {well} {recording.name}")
+                    continue
+
+                try:
+                    stack, cell_coords = load_recording(rna, well, recording)
+                except FileNotFoundError:
+                    print(f"File not found for {rna} {well} {recording.name}")
+                    continue
+
+                dff = extract_cells(stack, cell_coords, do_dff=True)
+                n_spikes, spike_lengths = count_spikes(dff, threshold=0.3)
+                np.save(
+                    save_path,
+                    {"n_spikes": n_spikes, "spike_lengths": spike_lengths},
+                )
+
+
+def plot_results() -> None:
+    result_files = list(HERE.glob("results/*.npy"))
+    to_plot = {"scrambled": [], "NPTX2": []}
+    n_scrambled = 0
+    n_nptx2 = 0
+    for result in result_files:
+        data = np.load(result, allow_pickle=True).item()
+        n_spikes = data["n_spikes"]
+        spike_lengths = [
+            np.mean(spike_lengths) for spike_lengths in data["spike_lengths"]
+        ]
+
+        if "scrambled" in result.name:
+            to_plot["scrambled"].extend(n_spikes)
+            n_scrambled += 1
+        else:
+            to_plot["NPTX2"].extend(n_spikes)
+            n_nptx2 += 1
+
+    to_plot["scrambled"] = np.array(to_plot["scrambled"]) / 180
+    to_plot["NPTX2"] = np.array(to_plot["NPTX2"]) / 180
+
+    print(f"Number of recordings: {len(result_files)}")
+    print(f"Number of recording scrambled: {n_scrambled}")
+    print(f"Number of recording NPTX2: {n_nptx2}")
+    print(f"Number of cells scrambled: {len(to_plot['scrambled'])}")
+    print(f"Number of cells NPTX2: {len(to_plot['NPTX2'])}")
+
+    sns.kdeplot(to_plot, fill=True, common_norm=False)
+    plt.xlim(0, None)
+    plt.xlabel("Number of transients / second")
+    plt.show()
+
+
+if __name__ == "__main__":
+    plot_results()

@@ -3,3 +3,4 @@ xmltodict
 napari[all]
 matplotlib
 pytest
+seaborn
