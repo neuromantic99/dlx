@@ -4,3 +4,4 @@ napari[all]
 matplotlib
 pytest
 seaborn
+statsmodels

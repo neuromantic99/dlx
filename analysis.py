@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
 
+import pandas as pd
+from scipy import stats
 import seaborn as sns
 
 from utils import (
@@ -15,6 +17,8 @@ from utils import (
     threshold_detect_falling_edge,
 )
 from consts import UMBRELLA, coord_path
+
+import statsmodels.formula.api as smf
 
 
 HERE = Path(__file__).parent
@@ -101,7 +105,6 @@ def count_spikes(
 
 
 def plot_dff(dff: np.ndarray, threshold: float) -> None:
-    plt.figure()
     x = np.linspace(0, 180, dff.shape[1])
     for idx in range(dff.shape[0]):
         plt.figure()
@@ -207,5 +210,100 @@ def plot_results() -> None:
     plt.show()
 
 
+def all_cells_stats(df: pd.DataFrame) -> None:
+
+    assert ((df["subject"] == "scrambled") == (df["condition"] == "scrambled")).all()
+
+    model = smf.mixedlm(
+        formula="n_spikes ~ condition",  # Fixed effect
+        data=df,
+        groups=df["subject"],  # Higher-level grouping factor (subjects)
+        re_formula="1",  # Random intercepts
+        vc_formula={"well": "0 + C(well)"},  # Well-level random intercepts
+    )
+
+    result = model.fit(reml=True)
+
+    sns.stripplot(data=df, x="condition", y="n_spikes", fc="black", s=3, alpha=0.5)
+    sns.boxplot(data=df, x="condition", y="n_spikes", showfliers=False)
+    plt.title(f"p = {round(result.pvalues['condition[T.scrambled]'], 3)}")
+    plt.ylabel("Number of transients")
+    plt.show()
+
+
+def build_all_cells_df() -> pd.DataFrame:
+    result_files = list(HERE.glob("results/*.npy"))
+
+    df_dict = {"condition": [], "n_spikes": [], "well": [], "subject": []}
+
+    for result in result_files:
+        data = np.load(result, allow_pickle=True).item()
+        subject = result.name.split("_")[0]
+        assert subject in {"90", "91", "scrambled"}
+        well = result.name.split("_")[1]
+        assert well in {"1", "2", "3", "4", "5"}
+        well = f"{well}_{subject}"
+        n_spikes = data["n_spikes"]
+
+        if "scrambled" in result.name:
+            condition = "scrambled"
+        elif "90" in result.name or "91" in result.name:
+            condition = "NPTX2"
+        else:
+            raise ValueError("Unknown condition")
+
+        df_dict["condition"].extend([condition] * len(n_spikes))
+        df_dict["well"].extend([well] * len(n_spikes))
+        df_dict["subject"].extend([subject] * len(n_spikes))
+        df_dict["n_spikes"].extend(n_spikes)
+
+    df = pd.DataFrame(df_dict)
+    return df
+
+
+def plot_well_means(all_cells_df: pd.DataFrame) -> None:
+
+    meaned_results = {"90": [], "91": [], "scrambled": []}
+    for well in all_cells_df["well"].unique():
+        meaned = all_cells_df[all_cells_df["well"] == well]["n_spikes"].mean()
+        meaned_results[well.split("_")[1]].append(meaned)
+
+    df = pd.DataFrame(
+        {
+            "dna": ["90"] * 5 + ["91"] * 5 + ["scrambled"] * 5,
+            "condition": ["NPTX2"] * 10 + ["scrambled"] * 5,
+            "n_spikes": meaned_results["90"]
+            + meaned_results["91"]
+            + meaned_results["scrambled"],
+        }
+    )
+
+    sns.boxplot(data=df, x="condition", y="n_spikes")
+
+    sns.stripplot(
+        data=df,
+        x="condition",
+        y="n_spikes",
+        hue="dna",
+        palette=[
+            sns.color_palette()[2],
+            sns.color_palette()[3],
+            sns.color_palette()[4],
+        ],
+    )
+
+    # Fit Linear Mixed Model with dna as random effect
+    model = smf.mixedlm("n_spikes ~ condition", df, groups=df["dna"])
+    result = model.fit()
+    plt.ylabel("Mean number of transients in well")
+    print(result.summary())
+    plt.title(f"p = {round(result.pvalues["condition[T.scrambled]"], 3)}")
+    plt.show()
+
+
 if __name__ == "__main__":
-    plot_results()
+
+    # process_all_recordings()
+    df = build_all_cells_df()
+    # all_cells_stats(df)
+    plot_well_means(df)
