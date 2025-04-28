@@ -71,7 +71,7 @@ def threshold_detect(signal: np.ndarray, threshold: float) -> np.ndarray:
 
 def threshold_detect_falling_edge(signal: np.ndarray, threshold: float) -> np.ndarray:
     """Returns the indices where signal falls below the threshold"""
-    thresh_signal = signal > threshold  # Boolean array: True if above threshold
+    thresh_signal = signal > threshold
     falling_edges = (
         np.where(thresh_signal[:-1] & ~thresh_signal[1:])[0] + 1
     )  # Detect falling transitions

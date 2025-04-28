@@ -1,4 +1,6 @@
 
+/test_data
+/sweep_results
 .DS_Store
 .vscode
 figures/ 

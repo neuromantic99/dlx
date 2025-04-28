@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 import matplotlib.pyplot as plt
 import numpy as np
 from pathlib import Path
@@ -75,7 +75,6 @@ def show_rois(stack: np.ndarray, cell_coords: np.ndarray) -> None:
     current_cmap = plt.cm.get_cmap()
     current_cmap.set_bad(alpha=0)
     plt.colorbar()
-    plt.show()
 
 
 def count_spikes(
@@ -212,37 +211,47 @@ def plot_results() -> None:
 
 def all_cells_stats(df: pd.DataFrame) -> None:
 
-    assert ((df["subject"] == "scrambled") == (df["condition"] == "scrambled")).all()
+    assert ((df["dna"] == "scrambled") == (df["condition"] == "scrambled")).all()
 
     model = smf.mixedlm(
         formula="n_spikes ~ condition",  # Fixed effect
         data=df,
-        groups=df["subject"],  # Higher-level grouping factor (subjects)
+        groups=df["dna"],  # Higher-level grouping factor (subjects)
         re_formula="1",  # Random intercepts
-        vc_formula={"well": "0 + C(well)"},  # Well-level random intercepts
+        vc_formula={
+            "plate": "0 + C(plate)",
+            "well": "0 + C(well)",
+        },  # Plate-level random intercepts
     )
 
-    result = model.fit(reml=True)
+    result = model.fit(
+        reml=True,
+        method="powell",
+    )
 
-    sns.stripplot(data=df, x="condition", y="n_spikes", fc="black", s=3, alpha=0.5)
+    assert result.converged, "Model did not converge"
+
+    sns.stripplot(data=df, x="condition", y="n_spikes", hue="dna", s=3, alpha=0.5)
     sns.boxplot(data=df, x="condition", y="n_spikes", showfliers=False)
     plt.title(f"p = {round(result.pvalues['condition[T.scrambled]'], 3)}")
     plt.ylabel("Number of transients")
-    plt.show()
 
 
 def build_all_cells_df() -> pd.DataFrame:
     result_files = list(HERE.glob("results/*.npy"))
 
-    df_dict = {"condition": [], "n_spikes": [], "well": [], "subject": []}
+    df_dict = {"condition": [], "n_spikes": [], "well": [], "dna": [], "plate": []}
 
     for result in result_files:
         data = np.load(result, allow_pickle=True).item()
-        subject = result.name.split("_")[0]
-        assert subject in {"90", "91", "scrambled"}
+        dna = result.name.split("_")[0]
+        if dna == "91":
+            continue
+        assert dna in {"90", "91", "scrambled"}
         well = result.name.split("_")[1]
+        plate = well_to_plate(int(well))
         assert well in {"1", "2", "3", "4", "5"}
-        well = f"{well}_{subject}"
+        well = f"{well}_{dna}"
         n_spikes = data["n_spikes"]
 
         if "scrambled" in result.name:
@@ -254,31 +263,81 @@ def build_all_cells_df() -> pd.DataFrame:
 
         df_dict["condition"].extend([condition] * len(n_spikes))
         df_dict["well"].extend([well] * len(n_spikes))
-        df_dict["subject"].extend([subject] * len(n_spikes))
+        df_dict["dna"].extend([dna] * len(n_spikes))
+        df_dict["plate"].extend([plate] * len(n_spikes))
         df_dict["n_spikes"].extend(n_spikes)
 
     df = pd.DataFrame(df_dict)
     return df
 
 
-def plot_well_means(all_cells_df: pd.DataFrame) -> None:
+def get_qpcr_value(plate: int, dna: str) -> float:
+    if plate == 1 and dna == "scrambled":
+        return 1.02752
+    if plate == 2 and dna == "scrambled":
+        return 0.833883
+    if plate == 3 and dna == "scrambled":
+        return 1.167091
+    if plate == 1 and dna == "90":
+        return 0.23373
+    if plate == 2 and dna == "90":
+        return 0.378055
+    if plate == 3 and dna == "90":
+        return 0.378382
+    if plate == 1 and dna == "91":
+        return 0.647484
+    if plate == 2 and dna == "91":
+        return 0.348183
+    if plate == 3 and dna == "91":
+        return 0.261144
+    raise ValueError(f"dna {dna} and plate {plate} not understood")
 
-    meaned_results = {"90": [], "91": [], "scrambled": []}
-    for well in all_cells_df["well"].unique():
-        meaned = all_cells_df[all_cells_df["well"] == well]["n_spikes"].mean()
-        meaned_results[well.split("_")[1]].append(meaned)
 
-    df = pd.DataFrame(
-        {
-            "dna": ["90"] * 5 + ["91"] * 5 + ["scrambled"] * 5,
-            "condition": ["NPTX2"] * 10 + ["scrambled"] * 5,
-            "n_spikes": meaned_results["90"]
-            + meaned_results["91"]
-            + meaned_results["scrambled"],
-        }
-    )
+def plot_plate_means(all_cells_df: pd.DataFrame) -> None:
 
-    sns.boxplot(data=df, x="condition", y="n_spikes")
+    mean_dict: Dict[str, List] = {
+        "condition": [],
+        "dna": [],
+        "plate": [],
+        "n_spikes": [],
+    }
+    x = []
+    y = []
+    colors = []
+    for dna in ["scrambled", "90", "91"]:
+        if dna == "91":
+            continue
+        for plate in [1, 2, 3]:
+
+            plate_dna_df = all_cells_df[
+                (all_cells_df.dna == dna) & (all_cells_df.plate == plate)
+            ]
+            print(len(plate_dna_df))
+
+            meaned = plate_dna_df.n_spikes.mean()
+            condition = plate_dna_df["condition"]
+            assert len(condition.unique()) == 1
+
+            mean_dict["condition"].append(condition.iloc[0])
+            mean_dict["dna"].append(dna)
+            mean_dict["plate"].append(plate)
+            mean_dict["n_spikes"].append(meaned)
+            x.append(get_qpcr_value(plate, dna))
+            y.append(meaned)
+            if dna == "scrambled":
+                colors.append("green")
+            else:
+                colors.append("red")
+
+    plt.figure()
+    plot_qpcr_regression(x, y, colors)
+    plt.figure()
+    plot_boxplot(pd.DataFrame(mean_dict))
+
+
+def plot_boxplot(df: pd.DataFrame) -> None:
+    plt.figure()
+    sns.boxplot(data=df, x="condition", y="n_spikes", showfliers=False)
 
     sns.stripplot(
         data=df,
@@ -293,17 +352,75 @@ def plot_well_means(all_cells_df: pd.DataFrame) -> None:
     )
 
     # Fit Linear Mixed Model with dna as random effect
-    model = smf.mixedlm("n_spikes ~ condition", df, groups=df["dna"])
+    model = smf.mixedlm(
+        "n_spikes ~ condition",
+        df,
+        groups=df["dna"],
+        re_formula="1",  # Random intercepts
+        vc_formula={
+            "plate": "0 + C(plate)",
+        },  # Plate-level random intercepts
+    )
     result = model.fit()
-    plt.ylabel("Mean number of transients in well")
+    assert result.converged, "model did not converge"
+    plt.ylabel("Mean number of transients for plate")
     print(result.summary())
     plt.title(f"p = {round(result.pvalues["condition[T.scrambled]"], 3)}")
     plt.show()
 
 
-if __name__ == "__main__":
+def plot_qpcr_regression(x: List[float], y: List[float], colors: List[str]) -> None:
+    labelled_scramble = False
+    labelled_nptx2 = False
 
+    for xi, yi, c in zip(x, y, colors):
+        plt.plot(
+            xi,
+            yi,
+            ".",
+            color=c,
+            label=(
+                "scrambled siRNA"
+                if c == "green" and not labelled_scramble
+                else "NPTX2 siRNA" if c == "red" and not labelled_nptx2 else None
+            ),
+        )
+        if c == "green":
+            labelled_scramble = True
+        if c == "red":
+            labelled_nptx2 = True
+
+    regression = stats.linregress(x, y)
+    x_regression = np.linspace(min(x), max(x), 10)
+    y_regression = x_regression * regression.slope + regression.intercept
+    plt.plot(x_regression, y_regression)
+    plt.title(
+        f"Regression p={round(regression.pvalue, 3)}, r={round(regression.rvalue, 3)}"
+    )
+    plt.xlabel("NPTX2 mRNA expression level (normalised to scrambled)")
+    plt.ylabel("Mean number of transients")
+
+    plt.legend()
+
+
+def well_to_plate(well: int) -> int:
+    if well in {1, 2}:
+        return 1
+    elif well in {3, 4}:
+        return 2
+    elif well == 5:
+        return 3
+    else:
+        raise ValueError(f"Unknown well {well}")
+
+
+def main() -> None:
     # process_all_recordings()
     df = build_all_cells_df()
-    # all_cells_stats(df)
-    plot_well_means(df)
+    all_cells_stats(df)
+    plot_plate_means(df)
+    plt.show()
+
+
+if __name__ == "__main__":
+    main()
