@@ -10,15 +10,10 @@ def get_image_metadata_czi(AICSImage_object: aicsimageio.aics_image.AICSImage) -
     return xmltodict.parse(metadata_string)
 
 
-def load_image(image_directory_path: str) -> aicsimageio.aics_image.AICSImage | None:
+def load_image(image_directory_path: str) -> aicsimageio.aics_image.AICSImage:
     """Return AICSImage object"""
     # Selects the first scene found
-    try:
-        # AICSImageIo is lazy loading the image, hence the file is opened twice here
-        return aicsimageio.AICSImage(image_directory_path)
-    except FileNotFoundError as e:
-        print(f"ERROR: There was no image found at '{image_directory_path}'.")
-        return None
+    return aicsimageio.AICSImage(image_directory_path)
 
 
 def select_elipse_from_stack(shape_data: np.ndarray, stack: np.ndarray) -> np.ndarray:
