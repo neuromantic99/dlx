@@ -1,6 +1,7 @@
 
 /test_data
 /sweep_results
+/downsampled_videos
 .DS_Store
 .vscode
 figures/ 
