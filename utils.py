@@ -71,3 +71,8 @@ def threshold_detect_falling_edge(signal: np.ndarray, threshold: float) -> np.nd
         np.where(thresh_signal[:-1] & ~thresh_signal[1:])[0] + 1
     )  # Detect falling transitions
     return falling_edges
+
+
+def grouped_z_project(arr: np.ndarray, window_size: int) -> np.ndarray:
+    assert arr.ndim == 3, "Grouped z project requires 3D array"
+    return arr.reshape(-1, window_size, arr.shape[1], arr.shape[2]).mean(axis=1)
